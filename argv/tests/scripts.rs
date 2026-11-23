@@ -87,8 +87,15 @@ impl Fixture {
     }
 
     /// Run `code` in `shell`, with the fixture's directory as the working directory and on `PATH`.
+    ///
+    /// pwsh starts with `-NoProfile -NonInteractive`, so a developer's profile cannot add output
+    /// to a run whose stdout is being compared.
     fn run(&self, shell: &str, code: &str) -> String {
-        let out = Command::new(shell)
+        let mut command = Command::new(shell);
+        if shell == "pwsh" {
+            command.args(["-NoProfile", "-NonInteractive"]);
+        }
+        let out = command
             .arg("-c")
             .arg(code)
             .current_dir(&self.dir)
@@ -929,6 +936,33 @@ printf '%s\n' "${COMPREPLY[@]}"
         let fixture = Fixture::echoing("fish-cursor", Shell::Fish);
         let out = fixture.run("fish", "source ./script; __usage_complete_ex");
         assert!(out.starts_with("line=["), "fish: {out}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn powershell_keeps_the_space_between_the_command_and_the_cursor() {
+    // PowerShell hands a native completer the command's AST, and its extent ends at the last
+    // token. After `ex ` the cursor lies past that extent; cut there, the line would reach the
+    // binary as `ex` and the first argument would be completed as if it were the command name.
+    if !available("pwsh") {
+        return;
+    }
+    let fixture = Fixture::echoing("pwsh-trailing-space", Shell::PowerShell);
+    for (input, expected) in [
+        ("ex ", "line=[ex ]"),
+        ("ex a", "line=[ex a]"),
+        ("Get-Date; ex ", "line=[ex ]"),
+    ] {
+        let out = fixture.run(
+            "pwsh",
+            &format!(
+                // PowerShell dot-sources only a file named `.ps1`.
+                "Copy-Item ./script ./script.ps1; . ./script.ps1; (TabExpansion2 -inputScript '{input}' -cursorColumn {}).CompletionMatches | ForEach-Object CompletionText",
+                input.len()
+            ),
+        );
+        assert_eq!(out.trim(), expected, "pwsh: {input:?}");
     }
 }
 

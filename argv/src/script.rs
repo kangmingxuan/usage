@@ -616,8 +616,10 @@ Register-ArgumentCompleter -Native -CommandName '{name}' -ScriptBlock {{
     $extent = $commandAst.Extent
     $offset = $cursorPosition - $extent.StartOffset
     if ($offset -lt 0) {{ $offset = 0 }}
-    if ($offset -gt $extent.Text.Length) {{ $offset = $extent.Text.Length }}
-    $line = $extent.Text.Substring(0, $offset)
+    # The extent stops at the last token, so after a trailing space the cursor lies past it.
+    # Pad the line out to the cursor: cut at the extent, `ex ` would arrive as `ex` and complete
+    # the command name instead of its first argument.
+    $line = $extent.Text.PadRight($offset).Substring(0, $offset)
     $out = @(& '{bin}' __complete_word__ --shell powershell --line $line 2>$null)
 
     $files = $null
